@@ -18,15 +18,23 @@ defmodule StdJsonIo.Worker do
       {:error, reason} -> {:error, reason}
       {:ok, json} ->
         Proc.send_input(state.js_proc, json)
-        receive do
-          {_js_pid, :data, :out, msg} ->
-            {:reply, {:ok, msg}, state}
-          response ->
-            {:reply, {:error, response}, state}
+        receiver = fn f, data ->
+          receive do
+            {_js_pid, :data, :out, msg} ->
+              new_data = data <> msg
+              case Poison.decode(new_data) do
+                {:error, _} ->
+                  f.(f, new_data)
+                {:ok, _} ->
+                  {:reply, {:ok, new_data}, state}
+              end
+            response ->
+              {:reply, {:error, response}, state}
+          end
         end
+        receiver.(receiver, "")
     end
   end
-
   def handle_call(:stop, _from, state), do: {:stop, :normal, :ok, state}
 
   # The js server has stopped
